@@ -1,0 +1,173 @@
+---
+title: "Crear Mapa de Pendientes en R"
+author: "Carlos Madrid G"
+date: '2022-07-15'
+categories: 
+- Pendientes
+draft: no
+excerpt: R to GIS
+layout: single
+subtitle: Librerias R aplicadas a SIG
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(collapse = TRUE)
+library(kableExtra)
+```
+
+Un mapa de pendientes identifica la diferencia del gradiente entre dos formas de relieve. Es decir es una relación entre la distancia horizontal y la altitud entres dos puntos. A continuación, en una serie de pasos mostraré como realizar este tipo de mapas a partir de código en R:
+
+## Paquetes
+
+```{r paquetes, echo=FALSE}
+paquetes <- data.frame(
+  "Paquetes" = c("tidyverse", "raster", "tmap", "rgeoboundaries", "elevatr", "sp", "rgdal"),
+  "Definición" = c("Conjunto de paquetes (visualización y manipulación de datos): ggplot2, dplyr, purrr,etc.", " Lectura, escritura, manipulación, análisis y modelado de datos espaciales raster.", "Fácil creación de mapas temáticos.", "Límites administrativos de países.", "Acceso a datos de evación con API de USGS y AWS.", "Clases y métodos para tratar con datos espaciales", "Funciones para escribir archivos ráster y vectoriales en formatos compatibles."))
+knitr::kable(paquetes) %>% kable_material_dark() %>% kable_styling(full_width = F)
+```
+
+```{r instalacion, echo=TRUE, message=FALSE, warning=FALSE}
+# INSTALACION
+if(!require("tidyverse")) install.packages("tidyverse")
+if(!require("raster")) install.packages("raster")
+if(!require("tmap")) install.packages("tmap")
+if(!require("sp")) install.packages("sp")
+if(!require("rgdal")) install.packages("rgdal")
+if(!require("showtext")) install.packages("showtext")
+if(!require("ggspatial")) install.packages("ggspatial")
+
+# CARGAMOS LOS PAQUETES AL ENTORNO DE R
+library(tidyverse)
+library(raster)
+library(tmap)
+library(sp)
+library(rgdal)
+library(showtext)
+library(ggspatial)
+library(leaflet)
+```
+
+## Paso #1: Importar Modelo Digital de Elevaciones (MDE) a entorno R
+
+Para poder realizar nuestro mapa de pendientes debemos comenzar importando un **Modelo Digital de Elevaciones** **(MDE)** sobre el cual podamos calcular la pendiente del terreno. En este caso utilizaremos un fichero **TIF** de la Isla El Hierro, la más occidental y meridional de las Islas Canarias (España), situada en el océano Atlántico. Para esto usaremos la función `raster` del paquete del mismo nombre:
+
+```{r dem_import, echo=TRUE}
+# IMPORTAMOS LA ZONA DE TRABAJO #
+areaDEM <- raster((paste0("C:/RASTER/hs25m.tif")))
+
+# EJECUTAMOS PARA VER SUS CARACTERISTICAS #
+areaDEM
+```
+Podemos ver que el MDE contiene 1.075 filas, 1.189 columnas y 1.278.175 celdas. Además, la resolución del ráster es de 25 m. Podemos obtener una estadística general usando la función `summarize`:
+
+```{r estadistica, echo=TRUE}
+# CALCULAR ESTADÍSTICA PARA TOTALIDAD DEL RASTER #
+summary(areaDEM, maxsamp=ncell(areaDEM))
+```
+
+## Paso #2: Crear mapa de pendientes en R
+
+Para generar un mapa de pendientes a partir del MDE utilizaremos la función `terrain` del paquete `raster` en conjunto con `ggplot2`:
+
+```{r calc_slope, echo=TRUE}
+# CALCULAMOS LA PENDIENTE DEL TERRENO CON LA FUNCION TERRAIN #
+slope_dem <- terrain(areaDEM, opt="slope", unit="degrees", neighbors=8)
+
+#AJUSTAMOS RASTER DE PENDIENTE A LA EXTENSIÓN DEL DEM #
+extent(slope_dem) = extent(areaDEM)
+```
+Para graficar el mapa con `ggplot2` debemos transformar el RasterLayer a `dataframe`:
+
+```{r ggplot_slope, echo=TRUE, fig.dim=c(8,6), fig.align='center'}
+# TRANSFORMAR A DATAFRAME
+slope_1 <- as.data.frame(slope_dem, xy=TRUE)
+
+# ELIMINAR FILAS CON VALORES NAN
+slope_1 <- slope_1[complete.cases(slope_1), ]
+
+#AÑADIR FUENTES
+font_add(family = "Montserrat", regular = "C:/Users/gonza/AppData/Local/Microsoft/Windows/Fonts/Montserrat-Regular.ttf")
+showtext_auto()
+
+# CAMBIAR DATOS DE FORMATO CONTINUO A DISCRETIZADO #
+slope_1_df <- slope_1 %>% mutate(clases = cut(slope, breaks=c(5,15,30,60,75,90)), include.lowest=FALSE)
+
+slope_1_df %>% group_by(clases) %>% na.omit(clases) %>% count()
+```
+
+Y luego graficamos:
+```{r plot, echo=TRUE}
+# GRAFICAR
+ggplot() + geom_raster(data = slope_1_df, aes(x=x,y=y, fill=clases)) +
+  scale_fill_brewer(palette = "Spectral", direction = -1, na.translate=F) + theme_linedraw(base_family = "Montserrat") +
+  guides(fill=guide_legend(keywidth = .7, keyheight = 2.7)) +
+  labs(title = expression(underline(Mapa~de~Pendientes:~Isla~El~Hierro)),
+  x= " ", y =" ", fill="Clases de Pendientes") +
+  theme(plot.title = element_text(colour = "black", hjust = .5, size = 20,
+                                  margin = margin(t = 30)),
+        axis.text = element_text(size = 12),
+        aspect.ratio = 1,
+        legend.text = element_text(size = 14),
+        legend.title = element_text(size = 16)) +
+  ggspatial::annotation_north_arrow(
+    location = "tl", which_north = "true",
+    pad_x = unit(0.2, "in"), pad_y = unit(0.2, "in"),
+    style = ggspatial::north_arrow_nautical(
+      fill = c("grey40", "white"),
+      line_col = "grey20",
+      text_family = "Montserrat",
+      text_size = 12
+    )
+  ) +
+  ggspatial::annotation_scale(
+    location = "br",
+    bar_cols = c("grey60", "white"),
+    text_family = "Montserrat",
+    text_face=12,
+    text_cex = 1.2
+  )
+```
+
+## Parte #3: Crear mapa de pendientes con `tmap`
+
+Una alternativa bastante interesante a `ggplot2` es `tmap`. Corresponde a un paquete dedicado a la creación de mapas temáticos y cuya filosofía es similar a la de `ggplot2`, creando múltiples capas con diferentes funciones, que siempre siguen la sintaxis `tm_*` y se combinan con `+`. La construcción de este tipo de mapas siempre comienza con `tm_shape()` y posteriormente agregamos la geometría correspondiente al tipo de datos (e.g. `tm_raster()`, `tm_border()`, `tm_dot()`, etc.) y la función `tm_layout()` ayuda a configurar el estilo del mapa.
+
+```{r slope_tmap, echo=TRUE, fig.dim=c(8,6), fig.align='center'}
+tmap_mode("plot")
+map1 <- tm_shape(slope_dem) +
+  tm_raster(title = "Clases de Pendientes",
+            palette = "-RdYlGn", style = "quantile", n=6,
+            breaks = c(5, 15, 30, 60, 75, 90),
+            labels = c("Plana", "Suave", "Moderada",
+                       "Fuerte", "Muy Fuerte", "Escarpada"),
+            legend.show = T) +
+  tm_scale_bar(width = 0.25, text.size = 1,
+               text.color = "black", position = c("left", "bottom"),
+               lwd = 1) +
+  tm_compass(type = "arrow", position = c("right", "bottom"), size = 3, ) +
+  tm_layout(main.title = "Análisis de pendientes con MDE: Isla El Hierro",
+            main.title.position = "center", main.title.color = "black",
+            fontfamily = "Montserrat", main.title.size = 2,
+            legend.position = c("left", "top"),
+            legend.text.size = 1.3, legend.bg.color = "black",
+            legend.frame = "gray50", legend.outside = FALSE,
+            legend.title.size = 1.4, 
+            legend.text.color = "white", legend.title.color = "white",
+            inner.margins = 0
+            ) +
+  tm_grid(ticks = TRUE, lines = TRUE, col = "azure3", lwd = 1,
+          labels.size = 1.1, labels.col = "black")
+map1
+```
+
+## Paso #4: Crear Mapa Dinámico en `leaflet`
+
+Una característica muy interesante que tiene el paquete `tmap` es la función `tmap_leaflet()` que permite pasar de forma sencilla un mapa creado en el mismo marco a `leaflet`.
+
+```{r slope_leaflet, echo=TRUE, message=TRUE, warning=TRUE}
+library(leaflet)
+pal <- colorNumeric(palette = "Spectral", values(slope_dem),
+                    na.color = "transparent", reverse = TRUE)
+leaflet() %>% addTiles() %>%
+  addRasterImage(slope_dem, colors = pal) %>%
+  addLegend(pal=pal,values = values(slope_dem))
