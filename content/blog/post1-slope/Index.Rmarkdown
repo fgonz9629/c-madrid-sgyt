@@ -8,10 +8,11 @@ excerpt: Calcular Pendientes
 layout: single
 subtitle: Usar R como SIG
 title: Crear Mapa de Pendientes con tmap, ggplot2 y leaflet
-header:
-  image: ''
-  caption: ''
+image:
+  placement: 1
+  caption: 'Your caption here.'
   focal_point: ''
+  preview_only: false
 ---
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(collapse = TRUE)
